@@ -97,6 +97,11 @@ Second it takes one of two major logical paths:
 *   In that same vein, SSO accounts are processed before Credential accounts - this is an implementation detail, but you may wish to be aware.
 *   Profile processing may differ from awscli - this is an implementation detail - awsudobulk is largely compatable but the parser and implementation are independant at this time, so if you encounter incompatabilities, please report an issue.
 
+## Troubleshooting
 
+Run awsudobulk with
 
+    -stderrthreshold INFO -logtostderr -v 9
+
+As parameters - if that doesn't clarify, send the output from that, and if possible your REDACTED ~/.aws/config and ~/.aws/credentials in an issue and I'll happily take a look.
 
