@@ -30,14 +30,19 @@ type AwsAuthCacher struct {
 	SSOTokens map[string]*ssooidc.CreateTokenOutput
 }
 
-// Loads cached credentials from 'fn'
-func LoadAwsAuthCache(fn string) (cacher *AwsAuthCacher) {
+func NewAwsAuthCache()(cacher *AwsAuthCacher) {
 	cacher = &AwsAuthCacher{
 		Credentials:       map[string]aws.Credentials{},
 		SSORegistrations:  map[string]*ssooidc.RegisterClientOutput{},
 		SSOAuthorizations: map[string]*ssooidc.StartDeviceAuthorizationOutput{},
 		SSOTokens:         map[string]*ssooidc.CreateTokenOutput{},
 	}
+	return
+}
+
+// Loads cached credentials from 'fn'
+func LoadAwsAuthCache(fn string) (cacher *AwsAuthCacher) {
+	cacher = NewAwsAuthCache()
 	fp, err := os.Open(fn)
 	if err == nil {
 		defer fp.Close()

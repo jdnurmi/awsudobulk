@@ -31,14 +31,21 @@ func main() {
 		glob         string
 		command      string
 		command_args []string
+		load_cache	bool
+		save_cache	bool
 		cache_file   = filepath.Join(home, ".aws", "cli", "cache", "awsudo")
+		authCache = NewAwsAuthCache()
 	)
+	flag.BoolVar(&load_cache, "load-cache", true, "Load cached authentication data")
+	flag.BoolVar(&save_cache, "save-cache", true, "Save cached authentication data (only on success)")
 	flag.DurationVar(&refresh_padding, "refresh-padding", time.Minute*5, "Refresh credentials with less than this time left")
 	flag.StringVar(&glob, "u", "", "Credential to match (globbing supported)")
 	flag.StringVar(&cache_file, "cache", cache_file, "File to cache credentials in")
 	flag.Parse()
 
-	authCache := LoadAwsAuthCache(cache_file)
+	if load_cache {
+		authCache = LoadAwsAuthCache(cache_file)
+	}
 
 	if flag.NArg() < 1 {
 		glog.Errorf("Usage: %s COMMAND [command arguments]", os.Args[0])
@@ -149,7 +156,7 @@ func main() {
 	}
 	if err != nil {
 		glog.Fatalf("Error in execution: %v", err)
-	} else {
+	} else if save_cache {
 		err = authCache.SaveCache(cache_file)
 		if err != nil {
 			glog.Fatalf("Error saving credentials cache: %v", err)
