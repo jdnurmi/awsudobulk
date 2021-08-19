@@ -74,4 +74,29 @@ Maybe?  It's very much written for a user-base of one.  Pull requests are welcom
 
 Pull requests are welcome, as are forks.
 
+## How does it work?
+
+First, it takes an ordered approach to processing the accounts it can discover, and uses glob matching (NB: There may be merit to moving to regular expressions here, but for now, it's glob) to determine which ones the request applies to.
+
+Second it takes one of two major logical paths:
+
+- If the account is configured through SSO (e.g.: sso\_ variables in a 'profile XXX' block in ~/.aws/config), use AWS SSO credentials to authenticate the account, refreshing as needed.
+- If the account is configured through credentials (e.g., in ~/.aws/credentials), then, in order:
+
+   -   Initialize base credentials based on access-keys (recursing through source_profile if needed)
+   -   If an MFA is defined, use STS to fetch a token (sts:GetSessionToken) using the user-provided MfA token.
+   -   If a role account is defined, use whatever credentials are set (either straight access/secret, or the derived session from MfA) to assume the role account to call sts:AssumeRole.
+   -   Use the resultant credentials to call the command in the arguments with appropriate environment variables set
+
+
+## Notes:
+
+*   awsudobulk if a region is explicitly set in the account, it will override the run-time environment (this may change, subject to debate)
+*   External environment is preserved excepting AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION/AWS_SESSION_TOKEN which may get overridden on a per-execution basis.  This also means that if you set variables such as AWS_PROFILE, the results may be undefined.
+*   Credentials are obtained first, then the commands are run serially.  This is designed to minimize and front-load operator attention, but if you have especially short timeouts on sessions and long-running commands, there may be issues.
+*   In that same vein, SSO accounts are processed before Credential accounts - this is an implementation detail, but you may wish to be aware.
+*   Profile processing may differ from awscli - this is an implementation detail - awsudobulk is largely compatable but the parser and implementation are independant at this time, so if you encounter incompatabilities, please report an issue.
+
+
+
 
