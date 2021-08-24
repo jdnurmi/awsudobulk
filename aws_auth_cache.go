@@ -18,6 +18,16 @@ import (
 	"github.com/golang/glog"
 )
 
+type SSOAuthorization struct {
+	Authorization *ssooidc.StartDeviceAuthorizationOutput
+	Expiration    time.Time
+}
+
+type SSOToken struct {
+	Token      *ssooidc.CreateTokenOutput
+	Expiration time.Time
+}
+
 type AwsAuthCacher struct {
 	// Map of MFA's or RoleID's to credentials
 	Credentials map[string]aws.Credentials
@@ -25,17 +35,17 @@ type AwsAuthCacher struct {
 	// Map of regions to client registrations
 	SSORegistrations map[string]*ssooidc.RegisterClientOutput
 	// Map of start-url's to client authorizations
-	SSOAuthorizations map[string]*ssooidc.StartDeviceAuthorizationOutput
+	SSOAuthorizations map[string]*SSOAuthorization
 	// Map of start-url's to SSO tokens
-	SSOTokens map[string]*ssooidc.CreateTokenOutput
+	SSOTokens map[string]*SSOToken
 }
 
-func NewAwsAuthCache()(cacher *AwsAuthCacher) {
+func NewAwsAuthCache() (cacher *AwsAuthCacher) {
 	cacher = &AwsAuthCacher{
 		Credentials:       map[string]aws.Credentials{},
 		SSORegistrations:  map[string]*ssooidc.RegisterClientOutput{},
-		SSOAuthorizations: map[string]*ssooidc.StartDeviceAuthorizationOutput{},
-		SSOTokens:         map[string]*ssooidc.CreateTokenOutput{},
+		SSOAuthorizations: map[string]*SSOAuthorization{},
+		SSOTokens:         map[string]*SSOToken{},
 	}
 	return
 }
@@ -130,7 +140,7 @@ func (h AwsAuthCacher) GetRoleCredentials(conf aws.Config, role string) (creds a
 
 func (h AwsAuthCacher) getSSORegistration(ctx context.Context, conf aws.Config) (reg *ssooidc.RegisterClientOutput, err error) {
 	var ok bool
-	if reg, ok = h.SSORegistrations[conf.Region]; !ok {
+	if reg, ok = h.SSORegistrations[conf.Region]; !ok || time.Now().After(time.Unix(reg.ClientSecretExpiresAt, 0)) {
 		reg, err = ssooidc.NewFromConfig(conf).RegisterClient(ctx, &ssooidc.RegisterClientInput{
 			ClientName: aws.String("awsudobulk"),
 			ClientType: aws.String("public"),
@@ -143,8 +153,11 @@ func (h AwsAuthCacher) getSSORegistration(ctx context.Context, conf aws.Config) 
 }
 
 func (h AwsAuthCacher) getSSOAuthorization(ctx context.Context, conf aws.Config, start string) (auth *ssooidc.StartDeviceAuthorizationOutput, err error) {
-	var ok bool
-	if auth, ok = h.SSOAuthorizations[start]; !ok {
+	var (
+		ok            bool
+		authorization *SSOAuthorization
+	)
+	if authorization, ok = h.SSOAuthorizations[start]; !ok || time.Now().After(authorization.Expiration) {
 		var reg *ssooidc.RegisterClientOutput
 		reg, err = h.getSSORegistration(ctx, conf)
 		if err != nil {
@@ -156,23 +169,33 @@ func (h AwsAuthCacher) getSSOAuthorization(ctx context.Context, conf aws.Config,
 			StartUrl:     &start,
 		})
 		if err == nil {
-			h.SSOAuthorizations[start] = auth
+			h.SSOAuthorizations[start] = &SSOAuthorization{
+				Authorization: auth,
+				Expiration:    time.Now().Add(time.Second * time.Duration(auth.ExpiresIn)),
+			}
 		}
+	} else {
+		auth = authorization.Authorization
 	}
 	return
 }
 
 func (h AwsAuthCacher) getSSOToken(ctx context.Context, conf aws.Config, start string) (token *ssooidc.CreateTokenOutput, err error) {
-	var ok bool
-	if token, ok = h.SSOTokens[start]; !ok {
+	var (
+		ok   bool
+		toke *SSOToken
+	)
+	if toke, ok = h.SSOTokens[start]; !ok || time.Now().After(toke.Expiration) {
 		var auth *ssooidc.StartDeviceAuthorizationOutput
 		var reg *ssooidc.RegisterClientOutput
 		reg, err = h.getSSORegistration(ctx, conf)
 		if err != nil {
+			glog.V(3).Infof("Failed to register: %v", err)
 			return
 		}
 		auth, err = h.getSSOAuthorization(ctx, conf, start)
 		if err != nil {
+			glog.V(3).Infof("Failed to authorize: %v", err)
 			return
 		}
 		token, err = ssooidc.NewFromConfig(conf).CreateToken(ctx, &ssooidc.CreateTokenInput{
@@ -184,8 +207,15 @@ func (h AwsAuthCacher) getSSOToken(ctx context.Context, conf aws.Config, start s
 		})
 		// Handle Token Error
 		if err == nil {
-			h.SSOTokens[start] = token
+			h.SSOTokens[start] = &SSOToken{
+				Token:      token,
+				Expiration: time.Now().Add(time.Second * time.Duration(token.ExpiresIn)),
+			}
+		} else {
+			glog.V(3).Infof("Token failed to create: %+v", err)
 		}
+	} else {
+		token = toke.Token
 	}
 	return
 }
@@ -209,19 +239,24 @@ func (h AwsAuthCacher) GetSSOCredentials(ctx context.Context, conf aws.Config, s
 			auth, err = h.getSSOAuthorization(ctx, conf, start)
 			if err == nil {
 				err = cb(*auth.VerificationUriComplete)
+			} else {
 			}
 		} else {
+			glog.V(3).Infof("Unsupported error type %+v", err)
 			break
 		}
 	}
+
 	if err != nil {
 		return
 	}
+
 	rco, err := sso.NewFromConfig(conf).GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
 		AccessToken: token.AccessToken,
 		AccountId:   &account,
 		RoleName:    &role,
 	})
+
 	if err == nil {
 		creds = aws.Credentials{
 			AccessKeyID:     *rco.RoleCredentials.AccessKeyId,

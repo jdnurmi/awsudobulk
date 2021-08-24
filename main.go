@@ -31,10 +31,10 @@ func main() {
 		glob         string
 		command      string
 		command_args []string
-		load_cache	bool
-		save_cache	bool
+		load_cache   bool
+		save_cache   bool
 		cache_file   = filepath.Join(home, ".aws", "cli", "cache", "awsudo")
-		authCache = NewAwsAuthCache()
+		authCache    = NewAwsAuthCache()
 	)
 	flag.BoolVar(&load_cache, "load-cache", true, "Load cached authentication data")
 	flag.BoolVar(&save_cache, "save-cache", true, "Save cached authentication data (only on success)")
